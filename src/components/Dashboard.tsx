@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { MetricDefinition, Commit } from '../types';
-import { 
-  Search, Play, GitBranch, GitCommit, ArrowUpRight, ArrowDownRight, Check,
-  AlertTriangle, Code, Shield, Activity, ChevronRight, CheckCircle2, SlidersHorizontal,
-  Plus, HelpCircle
+import {
+  Search, Play, ArrowUpRight, ArrowDownRight, Check,
+  Code, Shield, Activity, CheckCircle2
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -32,15 +31,13 @@ export default function Dashboard({
 
   const selectedMetric = metrics.find(m => m.id === selectedMetricId) || metrics[0];
 
-  // Filters
   const filteredMetrics = metrics.filter(metric => {
-    const matchesSearch = metric.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    const matchesSearch = metric.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           metric.description.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = categoryFilter === 'all' || metric.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
 
-  // Calculate trends for a metric
   const getTrendData = (metric: MetricDefinition) => {
     if (!metric.history || metric.history.length < 2) {
       return { isImprovement: false, isRegression: false, percent: '0.0', rawDiff: 0, valueDiffStr: '0' };
@@ -48,161 +45,149 @@ export default function Dashboard({
     const values = metric.history.map(h => h.value);
     const first = values[0];
     const last = values[values.length - 1];
-    
-    // Percent difference
     const rawDiff = last - first;
     const percent = first === 0 ? 0 : Math.abs((rawDiff / first) * 100);
-    
     let isImprovement = false;
     let isRegression = false;
 
-    if (rawDiff === 0) {
-      // flat
-    } else if (metric.direction === 'minimize') {
-      if (rawDiff < 0) {
-        isImprovement = true;
-      } else {
-        isRegression = true;
-      }
-    } else if (metric.direction === 'maximize') {
-      if (rawDiff > 0) {
-        isImprovement = true;
-      } else {
-        isRegression = true;
+    if (rawDiff !== 0) {
+      if (metric.direction === 'minimize') {
+        isImprovement = rawDiff < 0;
+        isRegression = rawDiff > 0;
+      } else if (metric.direction === 'maximize') {
+        isImprovement = rawDiff > 0;
+        isRegression = rawDiff < 0;
       }
     }
 
     return {
-      isImprovement,
-      isRegression,
+      isImprovement, isRegression,
       percent: percent.toFixed(1),
       rawDiff,
       valueDiffStr: `${rawDiff > 0 ? '+' : ''}${parseFloat(rawDiff.toFixed(4)).toString()}`
     };
   };
 
-  // SVG Line Path calculation for sparkline
   const generateSparkline = (history: { value: number }[], width: number, height: number) => {
     if (!history || history.length < 2) return '';
     const vals = history.map(h => h.value);
     const minVal = Math.min(...vals);
     const maxVal = Math.max(...vals);
     const range = maxVal - minVal || 1;
-
     const points = history.map((pt, i) => {
       const x = (i / (history.length - 1)) * width;
-      // y is inverted in SVG, offset by padding
       const y = height - ((pt.value - minVal) / range) * (height - 6) - 3;
       return `${x},${y}`;
     });
     return `M ${points.join(' L ')}`;
   };
 
-  // Sorting
   const sortedMetrics = [...filteredMetrics].sort((a, b) => {
-    if (sortField === 'name') {
-      return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
-    } else if (sortField === 'current') {
-      return sortAsc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal;
-    } else if (sortField === 'trend') {
-      const trendA = parseFloat(getTrendData(a).percent) * (getTrendData(a).isRegression ? 1 : -1);
-      const trendB = parseFloat(getTrendData(b).percent) * (getTrendData(b).isRegression ? 1 : -1);
-      return sortAsc ? trendA - trendB : trendB - trendA;
+    if (sortField === 'name') return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+    if (sortField === 'current') return sortAsc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal;
+    if (sortField === 'trend') {
+      const tA = parseFloat(getTrendData(a).percent) * (getTrendData(a).isRegression ? 1 : -1);
+      const tB = parseFloat(getTrendData(b).percent) * (getTrendData(b).isRegression ? 1 : -1);
+      return sortAsc ? tA - tB : tB - tA;
     }
     return 0;
   });
 
   const handleSort = (field: 'name' | 'current' | 'trend') => {
-    if (sortField === field) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortField(field);
-      setSortAsc(true);
-    }
+    if (sortField === field) setSortAsc(!sortAsc);
+    else { setSortField(field); setSortAsc(true); }
+  };
+
+  const categoryDot: Record<string, string> = {
+    performance: 'bg-amber-400',
+    size: 'bg-sky-400',
+    cost: 'bg-emerald-400',
+    quality: 'bg-blue-400',
   };
 
   return (
-    <div className="space-y-6" id="dashboard-root-view">
-      
-      {/* 1. TOP DENSE STAT STRIP */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#22262B] border border-[#22262B] rounded-lg overflow-hidden shrink-0" id="stat-strip">
-        <div className="bg-[#13161B] p-4 text-left">
-          <div className="text-[11px] font-medium text-[#8A94A6] uppercase tracking-wider font-sans">Active Objectives</div>
-          <div className="flex items-baseline gap-1.5 mt-1">
-            <span className="font-mono text-xl font-semibold text-[#E2E8F0]">{metrics.length}</span>
-            <span className="text-[11px] text-[#4F5B70] font-sans">tracked</span>
+    <div className="space-y-5" id="dashboard-root-view">
+
+      {/* STAT STRIP */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[var(--border)] border border-[var(--border)] rounded-lg overflow-hidden">
+        <div className="bg-[var(--surface)] p-4">
+          <div className="text-[10px] font-medium text-[var(--text-3)] uppercase tracking-wider">Active Objectives</div>
+          <div className="flex items-baseline gap-1.5 mt-1.5">
+            <span className="font-mono text-xl font-semibold text-[var(--text-1)]">{metrics.length}</span>
+            <span className="text-[11px] text-[var(--text-3)]">tracked</span>
           </div>
-          <div className="text-[10px] text-[#4F5B70] font-sans mt-0.5">Coverage metric, API speed, costs</div>
+          <div className="text-[10px] text-[var(--text-3)] mt-0.5">Coverage, latency, costs</div>
         </div>
 
-        <div className="bg-[#13161B] p-4 text-left">
-          <div className="text-[11px] font-medium text-[#8A94A6] uppercase tracking-wider font-sans">Branch Targets</div>
-          <div className="flex items-baseline gap-1.5 mt-1">
-            <span className="font-mono text-base font-semibold text-violet-400 bg-violet-400/5 px-2 py-0.5 rounded border border-violet-500/10">main</span>
-            <span className="text-[11px] text-[#4F5B70] font-sans">active</span>
+        <div className="bg-[var(--surface)] p-4">
+          <div className="text-[10px] font-medium text-[var(--text-3)] uppercase tracking-wider">Target Branch</div>
+          <div className="flex items-baseline gap-1.5 mt-1.5">
+            <span className="font-mono text-sm font-semibold text-[var(--accent-text)] bg-[var(--accent-subtle)] px-2 py-0.5 rounded border border-[var(--accent-border)]">main</span>
           </div>
-          <div className="text-[10px] text-[#4F5B70] font-sans mt-0.5">Evaluating pull-requests dynamically</div>
+          <div className="text-[10px] text-[var(--text-3)] mt-0.5">Evaluating pull-requests</div>
         </div>
 
-        <div className="bg-[#13161B] p-4 text-left">
-          <div className="text-[11px] font-medium text-[#8A94A6] uppercase tracking-wider font-sans">Autonomous Pipelines</div>
-          <div className="flex items-baseline gap-1.5 mt-1">
-            <span className="font-mono text-xl font-semibold text-emerald-400">
+        <div className="bg-[var(--surface)] p-4">
+          <div className="text-[10px] font-medium text-[var(--text-3)] uppercase tracking-wider">Autonomous Pipelines</div>
+          <div className="flex items-baseline gap-1.5 mt-1.5">
+            <span className="font-mono text-xl font-semibold text-emerald-500">
               {metrics.filter(m => m.enabledForAgent).length}
             </span>
-            <span className="text-[11px] text-[#4F5B70] font-sans">active loops</span>
+            <span className="text-[11px] text-[var(--text-3)]">active</span>
           </div>
-          <div className="text-[10px] text-[#4F5B70] font-sans mt-0.5">Continuous auto-optimization auto-enabled</div>
+          <div className="text-[10px] text-[var(--text-3)] mt-0.5">Auto-optimization loops</div>
         </div>
 
-        <div className="bg-[#13161B] p-4 text-left">
-          <div className="text-[11px] font-medium text-[#8A94A6] uppercase tracking-wider font-sans">Researcher Daemon</div>
-          <div className="flex items-baseline gap-1.5 mt-1">
-            <span className="font-mono text-xs font-semibold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20 flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full bg-amber-400 ${isSimulating ? 'animate-ping' : ''}`} />
-              {isSimulating ? 'simulating patch' : 'idle daemon'}
+        <div className="bg-[var(--surface)] p-4">
+          <div className="text-[10px] font-medium text-[var(--text-3)] uppercase tracking-wider">Researcher Daemon</div>
+          <div className="mt-1.5">
+            <span className={`inline-flex items-center gap-1.5 font-mono text-xs font-semibold px-2 py-0.5 rounded border ${
+              isSimulating
+                ? 'text-amber-500 bg-amber-500/10 border-amber-500/20'
+                : 'text-[var(--text-2)] bg-[var(--surface-2)] border-[var(--border)]'
+            }`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${isSimulating ? 'bg-amber-400 animate-ping' : 'bg-[var(--text-3)]'}`} />
+              {isSimulating ? 'Running patch' : 'Idle'}
             </span>
           </div>
-          <div className="text-[10px] text-[#4F5B70] font-sans mt-0.5">Monitoring commit regressions</div>
+          <div className="text-[10px] text-[var(--text-3)] mt-1">Monitoring regressions</div>
         </div>
       </div>
 
-      {/* 2. MAIN LAYOUT: TABLES ON LEFT (60%), HIGH-DENSITY DRILL DOWN ON RIGHT (40%) */}
+      {/* MAIN LAYOUT */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-        
-        {/* OBJECTIVES TABLE WINDOW */}
-        <div className="xl:col-span-7 bg-[#13161B] border border-[#22262B] rounded-lg overflow-hidden flex flex-col" id="objectives-table-container">
-          
-          {/* Header Actions */}
-          <div className="p-4 border-b border-[#22262B] flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-[#13161B]">
+
+        {/* OBJECTIVES TABLE */}
+        <div className="xl:col-span-7 bg-[var(--surface)] border border-[var(--border)] rounded-lg overflow-hidden flex flex-col">
+          {/* Table header */}
+          <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-violet-500" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-[#E2E8F0] font-sans">Codebase Objectives</h2>
-              <span className="text-[10px] bg-[#1E232B] px-1.5 py-0.5 rounded font-mono text-[#4F5B70]">v1.0.4</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+              <h2 className="text-xs font-semibold text-[var(--text-1)]">Codebase Objectives</h2>
+              <span className="text-[10px] bg-[var(--surface-2)] border border-[var(--border)] px-1.5 py-0.5 rounded font-mono text-[var(--text-3)]">v1.0.4</span>
             </div>
 
-            {/* Filter Group */}
             <div className="flex items-center gap-2">
               <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-3 w-3 text-[#4F5B70]" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--text-3)]" />
                 <input
                   type="text"
                   placeholder="Filter objectives..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="bg-[#0B0D10] border border-[#22262B] rounded pl-8 pr-3 py-1 text-xs text-[#E2E8F0] placeholder-[#4F5B70] outline-none focus:border-violet-500/50 w-full sm:w-44 transition-all font-sans"
+                  className="bg-[var(--bg)] border border-[var(--border)] rounded pl-8 pr-3 py-1.5 text-xs text-[var(--text-1)] placeholder-[var(--text-3)] outline-none focus:border-[var(--accent)] w-full sm:w-44 transition-colors"
                 />
               </div>
 
-              <div className="flex bg-[#0B0D10] border border-[#22262B] p-0.5 rounded">
+              <div className="flex bg-[var(--bg)] border border-[var(--border)] p-0.5 rounded gap-0.5">
                 {(['all', 'performance', 'quality', 'size', 'cost'] as const).map(cat => (
                   <button
                     key={cat}
                     onClick={() => setCategoryFilter(cat)}
-                    className={`px-2 py-0.5 rounded text-[11px] font-sans font-medium capitalize cursor-pointer transition-colors ${
-                      categoryFilter === cat 
-                        ? 'bg-[#22262B] text-[#E2E8F0]' 
-                        : 'text-[#8A94A6] hover:text-[#E2E8F0]'
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium capitalize cursor-pointer transition-colors ${
+                      categoryFilter === cat
+                        ? 'bg-[var(--surface-2)] text-[var(--text-1)]'
+                        : 'text-[var(--text-2)] hover:text-[var(--text-1)]'
                     }`}
                   >
                     {cat}
@@ -212,26 +197,26 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* Table Element */}
+          {/* Table */}
           <div className="overflow-x-auto min-h-[350px]">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#22262B] bg-[#0E1114]">
-                  <th onClick={() => handleSort('name')} className="p-3 text-[11px] font-semibold text-[#8A94A6] select-none cursor-pointer hover:text-[#E2E8F0] font-sans">
-                    Objective Name {sortField === 'name' && (sortAsc ? '↑' : '↓')}
+                <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+                  <th onClick={() => handleSort('name')} className="p-3 text-[11px] font-medium text-[var(--text-2)] select-none cursor-pointer hover:text-[var(--text-1)] transition-colors">
+                    Objective {sortField === 'name' && (sortAsc ? '↑' : '↓')}
                   </th>
-                  <th className="p-3 text-[11px] font-semibold text-[#8A94A6] font-sans text-center">Direction</th>
-                  <th className="p-3 text-[11px] font-semibold text-[#8A94A6] font-sans">Sparkline</th>
-                  <th onClick={() => handleSort('current')} className="p-3 text-[11px] font-semibold text-[#8A94A6] select-none cursor-pointer hover:text-[#E2E8F0] font-sans text-right">
+                  <th className="p-3 text-[11px] font-medium text-[var(--text-2)] text-center">Direction</th>
+                  <th className="p-3 text-[11px] font-medium text-[var(--text-2)]">Trend</th>
+                  <th onClick={() => handleSort('current')} className="p-3 text-[11px] font-medium text-[var(--text-2)] select-none cursor-pointer hover:text-[var(--text-1)] transition-colors text-right">
                     Current {sortField === 'current' && (sortAsc ? '↑' : '↓')}
                   </th>
-                  <th onClick={() => handleSort('trend')} className="p-3 text-[11px] font-semibold text-[#8A94A6] select-none cursor-pointer hover:text-[#E2E8F0] font-sans text-right">
-                    TrendDelta {sortField === 'trend' && (sortAsc ? '↑' : '↓')}
+                  <th onClick={() => handleSort('trend')} className="p-3 text-[11px] font-medium text-[var(--text-2)] select-none cursor-pointer hover:text-[var(--text-1)] transition-colors text-right">
+                    Delta {sortField === 'trend' && (sortAsc ? '↑' : '↓')}
                   </th>
-                  <th className="p-3 text-[11px] font-semibold text-[#8A94A6] font-sans text-center">Auto</th>
+                  <th className="p-3 text-[11px] font-medium text-[var(--text-2)] text-center">Auto</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#1D2128]">
+              <tbody className="divide-y divide-[var(--border)]">
                 {sortedMetrics.map(metric => {
                   const isSelected = metric.id === selectedMetricId;
                   const trend = getTrendData(metric);
@@ -241,28 +226,22 @@ export default function Dashboard({
                     <tr
                       key={metric.id}
                       onClick={() => setSelectedMetricId(metric.id)}
-                      className={`hover:bg-[#1D2128]/40 transition-colors cursor-pointer text-xs ${
-                        isSelected ? 'bg-violet-500/5 font-medium' : ''
+                      className={`hover:bg-[var(--hover)] transition-colors cursor-pointer text-xs ${
+                        isSelected ? 'bg-[var(--accent-subtle)]' : ''
                       }`}
                     >
-                      <td className="p-3 font-sans max-w-[200px]">
+                      <td className="p-3 max-w-[200px]">
                         <div className="flex items-center gap-2">
-                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                            metric.category === 'performance' ? 'bg-amber-400' :
-                            metric.category === 'size' ? 'bg-fuchsia-400' :
-                            metric.category === 'cost' ? 'bg-emerald-400' :
-                            metric.category === 'quality' ? 'bg-blue-400' :
-                            'bg-zinc-400'
-                          }`} />
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${categoryDot[metric.category] || 'bg-zinc-400'}`} />
                           <div className="truncate">
-                            <div className="text-[#E2E8F0] font-medium truncate">{metric.name}</div>
-                            <div className="text-[#4E5664] text-[10.5px] truncate font-sans">{metric.description}</div>
+                            <div className="text-[var(--text-1)] font-medium truncate">{metric.name}</div>
+                            <div className="text-[var(--text-3)] text-[10.5px] truncate mt-0.5">{metric.description}</div>
                           </div>
                         </div>
                       </td>
 
                       <td className="p-3 text-center">
-                        <span className="text-[10px] font-mono text-[#8A94A6] bg-[#0E1114] px-1.5 py-0.5 rounded border border-[#22262B]">
+                        <span className="text-[10px] font-mono text-[var(--text-2)] bg-[var(--bg)] px-1.5 py-0.5 rounded border border-[var(--border)]">
                           {metric.direction === 'minimize' ? 'min' : metric.direction === 'maximize' ? 'max' : 'hold'}
                         </span>
                       </td>
@@ -272,7 +251,7 @@ export default function Dashboard({
                           <svg width="100%" height="100%" viewBox="0 0 75 18" className="overflow-visible">
                             <path
                               d={path}
-                              stroke={trend.isImprovement ? '#10B981' : trend.isRegression ? '#EF4444' : '#8A94A6'}
+                              stroke={trend.isImprovement ? '#10B981' : trend.isRegression ? '#F43F5E' : 'var(--text-3)'}
                               strokeWidth="1.2"
                               fill="none"
                               strokeLinecap="round"
@@ -282,30 +261,29 @@ export default function Dashboard({
                         </div>
                       </td>
 
-                      <td className="p-3 font-mono text-[#E2E8F0] text-right font-tabular">
+                      <td className="p-3 font-mono text-[var(--text-1)] text-right font-tabular">
                         {metric.currentVal.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 4 })}
-                        <span className="text-[#4F5B70] text-[10px] ml-0.5 font-sans">{metric.unit}</span>
+                        <span className="text-[var(--text-3)] text-[10px] ml-0.5">{metric.unit}</span>
                       </td>
 
                       <td className="p-3 text-right">
                         {trend.rawDiff !== 0 ? (
                           <div className="flex items-center justify-end gap-1">
                             <span className={`font-mono text-[11px] font-semibold font-tabular ${
-                              trend.isImprovement ? 'text-emerald-400' : 'text-rose-400'
+                              trend.isImprovement ? 'text-emerald-500' : 'text-rose-500'
                             }`}>
                               {trend.isImprovement ? '-' : '+'}{trend.percent}%
                             </span>
-                            <span className="text-[#4F5B70] text-[10px] font-mono">
-                              ({trend.valueDiffStr})
-                            </span>
                           </div>
                         ) : (
-                          <span className="text-[#4F5B70] font-mono font-tabular">-</span>
+                          <span className="text-[var(--text-3)] font-mono font-tabular">—</span>
                         )}
                       </td>
 
                       <td className="p-3 text-center">
-                        <span className={`inline-block h-2 w-2 rounded-full ${metric.enabledForAgent ? 'bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-[#22262B]'}`} />
+                        <span className={`inline-block h-2 w-2 rounded-full transition-colors ${
+                          metric.enabledForAgent ? 'bg-emerald-400' : 'bg-[var(--border-2)]'
+                        }`} />
                       </td>
                     </tr>
                   );
@@ -313,86 +291,83 @@ export default function Dashboard({
               </tbody>
             </table>
             {sortedMetrics.length === 0 && (
-              <div className="p-8 text-center text-xs text-[#4F5B70] font-sans">
-                No telemetry objectives fit the search criteria.
+              <div className="p-8 text-center text-xs text-[var(--text-3)]">
+                No objectives match the current filters.
               </div>
             )}
           </div>
         </div>
 
-        {/* DETAILED DRILL DOWN PANEL ON RIGHT (40%) */}
-        <div className="xl:col-span-5 bg-[#13161B] border border-[#22262B] rounded-lg overflow-hidden flex flex-col sticky top-4" id="drilldown-detail-pane">
-          <div className="p-4 border-b border-[#22262B] flex items-center justify-between bg-[#13161B]">
+        {/* DRILL DOWN PANEL */}
+        <div className="xl:col-span-5 bg-[var(--surface)] border border-[var(--border)] rounded-lg overflow-hidden flex flex-col sticky top-4">
+          <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
             <div>
-              <div className="text-[10px] font-bold text-[#8A94A6] uppercase tracking-wider font-sans">Focus Metric Details</div>
-              <h3 className="text-sm font-semibold text-[#E2E8F0] font-sans mt-0.5">{selectedMetric.name}</h3>
+              <div className="text-[10px] font-medium text-[var(--text-3)] uppercase tracking-wider">Metric Details</div>
+              <h3 className="text-sm font-semibold text-[var(--text-1)] mt-0.5">{selectedMetric.name}</h3>
             </div>
-            <span className="text-[10px] px-2 py-0.5 bg-violet-600/10 text-violet-400 rounded-full border border-violet-500/20 font-sans capitalize">
+            <span className="text-[10px] px-2 py-0.5 bg-[var(--accent-subtle)] text-[var(--accent-text)] rounded border border-[var(--accent-border)] capitalize">
               {selectedMetric.category}
             </span>
           </div>
 
           <div className="p-4 space-y-5">
-            {/* Real Stats Box */}
-            <div className="grid grid-cols-3 gap-px bg-[#22262B] border border-[#22262B] rounded overflow-hidden">
-              <div className="bg-[#0B0D10] p-2.5 text-center">
-                <div className="text-[10px] text-[#8A94A6] font-sans">Current Value</div>
-                <div className="font-mono text-sm font-semibold text-[#E2E8F0] mt-0.5 font-tabular">
+            {/* Stats box */}
+            <div className="grid grid-cols-3 gap-px bg-[var(--border)] border border-[var(--border)] rounded overflow-hidden">
+              <div className="bg-[var(--bg)] p-2.5 text-center">
+                <div className="text-[10px] text-[var(--text-3)]">Current</div>
+                <div className="font-mono text-sm font-semibold text-[var(--text-1)] mt-0.5 font-tabular">
                   {selectedMetric.currentVal}
-                  <span className="text-[10px] font-sans text-[#4F5B70] font-normal ml-0.5">{selectedMetric.unit}</span>
+                  <span className="text-[10px] text-[var(--text-3)] font-normal ml-0.5">{selectedMetric.unit}</span>
                 </div>
               </div>
-              <div className="bg-[#0B0D10] p-2.5 text-center">
-                <div className="text-[10px] text-[#8A94A6] font-sans">Previous Value</div>
-                <div className="font-mono text-sm text-[#8A94A6] mt-0.5 font-tabular">
+              <div className="bg-[var(--bg)] p-2.5 text-center">
+                <div className="text-[10px] text-[var(--text-3)]">Previous</div>
+                <div className="font-mono text-sm text-[var(--text-2)] mt-0.5 font-tabular">
                   {selectedMetric.previousVal}
-                  <span className="text-[10.5px] font-sans text-[#4F5B70] ml-0.5">{selectedMetric.unit}</span>
+                  <span className="text-[10px] text-[var(--text-3)] ml-0.5">{selectedMetric.unit}</span>
                 </div>
               </div>
-              <div className="bg-[#0B0D10] p-2.5 text-center">
-                <div className="text-[10px] text-[#8A94A6] font-sans">Target Goal</div>
-                <div className="font-mono text-sm font-semibold text-violet-400 mt-0.5 font-tabular">
-                  {selectedMetric.targetVal !== undefined ? selectedMetric.targetVal : 'None'}
-                  <span className="text-[10.5px] font-sans text-[#4F5B70] font-normal ml-0.5">{selectedMetric.unit}</span>
+              <div className="bg-[var(--bg)] p-2.5 text-center">
+                <div className="text-[10px] text-[var(--text-3)]">Target</div>
+                <div className="font-mono text-sm font-semibold text-[var(--accent-text)] mt-0.5 font-tabular">
+                  {selectedMetric.targetVal !== undefined ? selectedMetric.targetVal : '—'}
+                  <span className="text-[10px] text-[var(--text-3)] font-normal ml-0.5">{selectedMetric.unit}</span>
                 </div>
               </div>
             </div>
 
-            {/* HIGH PRECISION GIT TREND GRAPH */}
+            {/* Trend chart */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px] font-sans text-[#8A94A6]">
-                <span>Historical Telemetry (Git Commit Flow)</span>
-                <span className="text-[10px] text-[#4F5B70]">Hover nodes for details</span>
+              <div className="flex items-center justify-between text-[11px] text-[var(--text-2)]">
+                <span>Historical Telemetry</span>
+                <span className="text-[10px] text-[var(--text-3)]">Hover nodes for details</span>
               </div>
-              
-              <div className="h-44 bg-[#0B0D10] rounded border border-[#22262B] relative p-3 overflow-hidden select-none">
-                {/* 3 Gridlines */}
-                <div className="absolute inset-x-0 top-1/4 border-t border-[#22262B]/50 pointer-events-none" />
-                <div className="absolute inset-x-0 top-2/4 border-t border-[#22262B]/50 pointer-events-none" />
-                <div className="absolute inset-x-0 top-3/4 border-t border-[#22262B]/50 pointer-events-none" />
 
-                {/* Target line if set */}
+              <div className="h-44 bg-[var(--bg)] rounded border border-[var(--border)] relative p-3 overflow-hidden select-none">
+                <div className="absolute inset-x-0 top-1/4 border-t border-[var(--border)]/50 pointer-events-none" />
+                <div className="absolute inset-x-0 top-2/4 border-t border-[var(--border)]/50 pointer-events-none" />
+                <div className="absolute inset-x-0 top-3/4 border-t border-[var(--border)]/50 pointer-events-none" />
+
                 {selectedMetric.targetVal !== undefined && (() => {
                   const values = selectedMetric.history.map(h => h.value);
                   const min = Math.min(...values) * 0.9;
                   const max = Math.max(...values) * 1.1;
                   const range = max - min || 1;
                   const targetY = 150 - ((selectedMetric.targetVal - min) / range) * 115 - 12;
-                  
                   if (targetY > 0 && targetY < 150) {
                     return (
-                      <div 
-                        className="absolute inset-x-0 border-t border-dashed border-violet-500/50 pointer-events-none flex justify-end pr-2"
+                      <div
+                        className="absolute inset-x-0 border-t border-dashed border-[var(--accent)]/40 pointer-events-none flex justify-end pr-2"
                         style={{ top: `${targetY}px` }}
                       >
-                        <span className="bg-[#0B0D10] px-1 text-[9px] font-mono text-violet-400/90 tracking-tight -translate-y-2">Goal Limit</span>
+                        <span className="bg-[var(--bg)] px-1 text-[9px] font-mono text-[var(--accent-text)]/80 -translate-y-2">target</span>
                       </div>
                     );
                   }
                   return null;
                 })()}
 
-                <svg width="100%" height="90%" className="overflow-visible overflow-y-visible pointer-events-auto">
+                <svg width="100%" height="90%" className="overflow-visible pointer-events-auto">
                   {(() => {
                     const values = selectedMetric.history.map(h => h.value);
                     const min = Math.min(...values) * 0.9;
@@ -400,24 +375,21 @@ export default function Dashboard({
                     const range = max - min || 1;
                     const svgWidth = 320;
                     const svgHeight = 110;
-
                     const points = selectedMetric.history.map((pt, i) => {
                       const x = (i / (selectedMetric.history.length - 1)) * svgWidth + 20;
                       const y = svgHeight - ((pt.value - min) / range) * (svgHeight - 20) - 10;
                       return { x, y, pt };
                     });
-
                     const pathd = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
 
                     return (
                       <>
                         <defs>
                           <linearGradient id="detailGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.15" />
-                            <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0.0" />
+                            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.12" />
+                            <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
                           </linearGradient>
                         </defs>
-                        
                         <path
                           d={`${pathd} L ${points[points.length - 1].x},${svgHeight} L ${points[0].x},${svgHeight} Z`}
                           fill="url(#detailGradient)"
@@ -425,43 +397,34 @@ export default function Dashboard({
                         <path
                           d={pathd}
                           fill="none"
-                          stroke="#8B5CF6"
+                          stroke="#6366f1"
                           strokeWidth="2"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         />
-
                         {points.map((p, idx) => {
                           const commitInfo = commits.find(c => c.shortHash === p.pt.commitHash);
                           return (
                             <g key={p.pt.commitHash} className="group cursor-default">
-                              <circle
-                                cx={p.x}
-                                cy={p.y}
-                                r="4.5"
-                                fill="#0B0D10"
-                                stroke="#A78BFA"
-                                strokeWidth="2.5"
-                              />
-                              {/* Hover Card */}
-                              <foreignObject 
-                                x={idx > 2 ? p.x - 170 : p.x + 10} 
-                                y={p.y - 45} 
-                                width="180" 
-                                height="110" 
+                              <circle cx={p.x} cy={p.y} r="4" fill="var(--bg)" stroke="#818cf8" strokeWidth="2" />
+                              <foreignObject
+                                x={idx > 2 ? p.x - 170 : p.x + 10}
+                                y={p.y - 45}
+                                width="180"
+                                height="110"
                                 className="overflow-visible pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30"
                               >
-                                <div className="bg-[#13161B] border border-[#22262B] p-2.5 rounded shadow-2xl relative space-y-1">
+                                <div className="bg-[var(--surface)] border border-[var(--border)] p-2.5 rounded shadow-lg space-y-1">
                                   <div className="flex justify-between items-center text-[10px]">
-                                    <span className="font-mono text-violet-400 font-bold">{p.pt.commitHash}</span>
-                                    <span className="text-[#4F5B70] text-[9px] font-mono">{commitInfo?.date || 'unknown'}</span>
+                                    <span className="font-mono text-[var(--accent-text)] font-bold">{p.pt.commitHash}</span>
+                                    <span className="text-[var(--text-3)] text-[9px] font-mono">{commitInfo?.date || ''}</span>
                                   </div>
-                                  <div className="text-[10px] font-medium text-[#E2E8F0] truncate font-sans">
-                                    {commitInfo?.message || 'Codebase state snapshot'}
+                                  <div className="text-[10px] font-medium text-[var(--text-1)] truncate">
+                                    {commitInfo?.message || 'Snapshot'}
                                   </div>
-                                  <div className="border-t border-[#22262B] pt-1 flex justify-between items-baseline font-sans text-[10px] text-[#8A94A6]">
-                                    <span>Val: <b className="font-mono text-white text-[11px] font-tabular">{p.pt.value} {selectedMetric.unit}</b></span>
-                                    {commitInfo?.author && <span className="truncate max-w-[80px] font-medium">By {commitInfo.author}</span>}
+                                  <div className="border-t border-[var(--border)] pt-1 flex justify-between items-baseline text-[10px] text-[var(--text-2)]">
+                                    <span>Val: <b className="font-mono text-[var(--text-1)] font-tabular">{p.pt.value} {selectedMetric.unit}</b></span>
+                                    {commitInfo?.author && <span className="truncate max-w-[80px]">{commitInfo.author}</span>}
                                   </div>
                                 </div>
                               </foreignObject>
@@ -472,87 +435,80 @@ export default function Dashboard({
                     );
                   })()}
                 </svg>
-
-                {/* Legend and Axis limits inside card */}
-                <div className="absolute left-2.5 bottom-1 text-[9px] font-mono text-[#4F5B70]">
-                  Git commit progression
-                </div>
+                <div className="absolute left-2.5 bottom-1 text-[9px] font-mono text-[var(--text-3)]">commit progression</div>
               </div>
 
-              {/* Hash labels on X-axis */}
-              <div className="flex justify-between px-2 text-[10px] font-mono text-[#8A94A6]">
+              <div className="flex justify-between px-1 text-[10px] font-mono text-[var(--text-2)]">
                 {selectedMetric.history.map(h => (
-                  <span key={h.commitHash} className="hover:text-violet-400 transition-colors uppercase cursor-default">{h.commitHash}</span>
+                  <span key={h.commitHash} className="hover:text-[var(--accent-text)] transition-colors cursor-default">{h.commitHash}</span>
                 ))}
               </div>
             </div>
 
-            {/* AI DECISION FLOWNET AND TOGGLE */}
-            <div className="bg-[#0B0D10] border border-[#22262B] rounded-lg p-3.5 space-y-3">
+            {/* AI Optimizer Toggle */}
+            <div className="bg-[var(--bg)] border border-[var(--border)] rounded-lg p-3.5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <Shield className="w-4 h-4 text-[#8A94A6]" />
+                  <Shield className="w-4 h-4 text-[var(--text-2)]" />
                   <div>
-                    <h4 className="text-xs font-semibold text-[#E2E8F0] font-sans">Autonomous AI Optimizer Daemon</h4>
-                    <p className="text-[10px] text-[#8A94A6] font-sans">Continuous code improvement with safe sandboxing</p>
+                    <h4 className="text-xs font-semibold text-[var(--text-1)]">Autonomous AI Optimizer</h4>
+                    <p className="text-[10px] text-[var(--text-2)] mt-0.5">Continuous improvement with sandbox verification</p>
                   </div>
                 </div>
-                
-                {/* Switch toggling agent loop participation on server */}
+
                 <label className="relative inline-flex items-center cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={selectedMetric.enabledForAgent}
                     onChange={() => onToggleAgent(selectedMetric.id)}
                     className="sr-only peer"
-                    id={`toggle-agent-${selectedMetric.id}`}
                   />
-                  <div className="w-8 h-4.5 bg-[#22262B] border border-[#31373E] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-[#808896] peer-checked:after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-violet-600 peer-checked:border-violet-500"></div>
+                  <div className="w-8 h-4.5 bg-[var(--border-2)] border border-[var(--border-2)] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-[var(--text-3)] peer-checked:after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-[var(--accent)] peer-checked:border-[var(--accent)]" />
                 </label>
               </div>
 
               {selectedMetric.enabledForAgent ? (
-                <div className="space-y-3 pt-2 text-[#8A94A6] font-sans text-xs border-t border-[#22262B]">
+                <div className="space-y-3 pt-2 text-[var(--text-2)] text-xs border-t border-[var(--border)]">
                   <div className="flex items-center justify-between">
-                    <span>Guardrail Constraints</span>
-                    <span className="text-emerald-400 text-[10px] font-semibold font-mono flex items-center gap-1 bg-emerald-500/5 px-1.5 py-0.5 rounded border border-emerald-500/15">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Sandboxed Safe
+                    <span>Guardrail constraints</span>
+                    <span className="text-emerald-500 text-[10px] font-semibold font-mono flex items-center gap-1 bg-emerald-500/8 px-1.5 py-0.5 rounded border border-emerald-500/15">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Sandboxed
                     </span>
                   </div>
-                  <p className="text-[10px] leading-relaxed text-[#8A94A6]">
-                    Our autonomous system evaluates non-disruptive commits in temporary cloud sandboxes. Code is strictly committed and merged only when unit tests check out perfectly green and companion metrics remain in nominal spec levels.
+                  <p className="text-[10px] leading-relaxed text-[var(--text-2)]">
+                    The autonomous system evaluates commits in isolated cloud sandboxes. Code is merged only when all unit tests pass and companion metrics remain within nominal ranges.
                   </p>
 
                   {selectedMetric.id === 'api-feed-latency' ? (
                     <button
                       onClick={() => onTriggerAgentSim(selectedMetric.id)}
                       disabled={isSimulating}
-                      className="w-full bg-violet-600 border border-violet-500 text-white font-mono text-[11px] font-semibold py-2 rounded hover:bg-violet-500 disabled:bg-[#1E232B] disabled:border-transparent disabled:text-[#4F5B70] disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full bg-[var(--accent)] border border-[var(--accent)] text-white font-mono text-[11px] font-semibold py-2 rounded hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Activity className={`w-3.5 h-3.5 ${isSimulating ? 'animate-spin' : ''}`} />
-                      {isSimulating ? 'Continuous Patch Executing...' : 'Simulate Autonomous Patch Run'}
+                      {isSimulating ? 'Patch Running...' : 'Simulate Autonomous Patch'}
                     </button>
                   ) : (
-                    <div className="p-2 bg-violet-600/5 text-violet-400 rounded-md border border-violet-500/10 text-[10px] leading-relaxed flex items-center gap-2">
-                      <span className="h-1 w-1 rounded-full bg-violet-400 animate-ping shrink-0" />
-                      <span>Attached to daemon scheduler. Scopes suggestions during nightly automated git cycles.</span>
+                    <div className="p-2 bg-[var(--accent-subtle)] text-[var(--accent-text)] rounded border border-[var(--accent-border)] text-[10px] leading-relaxed flex items-center gap-2">
+                      <span className="h-1 w-1 rounded-full bg-[var(--accent)] animate-pulse shrink-0" />
+                      <span>Attached to daemon scheduler. Active during nightly git cycles.</span>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="text-[10.5px] text-[#4F5B70] font-sans pt-1 leading-relaxed">
-                  Autonomous sandbox is offline. Changes to this metric must be implemented as manual commits or driven via direct MCP terminal instructions from your Cursor / VSCode workspace.
+                <div className="text-[10.5px] text-[var(--text-3)] pt-1 leading-relaxed border-t border-[var(--border)]">
+                  Autonomous sandbox is offline. Changes must be implemented as manual commits or via MCP terminal instructions.
                 </div>
               )}
             </div>
 
-            {/* SDK DECLARATION */}
+            {/* SDK Declarations */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11.5px] font-sans text-[#4F5B70]">
-                <span className="flex items-center gap-1.5 font-medium"><Code className="w-3.5 h-3.5" /> SDK Declarations</span>
-                <span className="font-mono text-[10.5px]">typescript/node</span>
+              <div className="flex items-center justify-between text-[11px] text-[var(--text-3)]">
+                <span className="flex items-center gap-1.5 font-medium"><Code className="w-3.5 h-3.5" /> SDK Declaration</span>
+                <span className="font-mono text-[10px]">typescript</span>
               </div>
-              <pre className="text-[11px] font-mono bg-[#0B0D10] p-3 rounded border border-[#22262B] text-[#D4D9E2] overflow-x-auto leading-relaxed select-text max-h-[145px]">
+              <pre className="text-[11px] font-mono bg-[var(--bg)] p-3 rounded border border-[var(--border)] text-[var(--text-1)] overflow-x-auto leading-relaxed select-text max-h-[145px]">
                 <code>{selectedMetric.codeSnippet}</code>
               </pre>
             </div>
@@ -560,7 +516,6 @@ export default function Dashboard({
         </div>
 
       </div>
-
     </div>
   );
 }
