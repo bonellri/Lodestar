@@ -8,17 +8,17 @@ import {
 } from './data';
 import { MetricDefinition, Commit, MetricSuggestion, AgentActivity, McpSessionLog } from './types';
 import Dashboard from './components/Dashboard';
+import GitGraph from './components/GitGraph';
 import Suggestions from './components/Suggestions';
 import McpServer from './components/McpServer';
 import AgentConsole from './components/AgentConsole';
 import { 
-  Cpu, LayoutDashboard, Sparkles, Terminal, Shield, GitBranch, GitPullRequest, 
-  Settings, Activity, AlertTriangle, ExternalLink, HelpCircle 
+  Cpu, LayoutDashboard, Sparkles, Terminal, GitBranch, 
+  Settings, Activity, Info
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'suggestions' | 'mcp' | 'agent'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'gitgraph' | 'suggestions' | 'agent' | 'mcp'>('dashboard');
   const [metrics, setMetrics] = useState<MetricDefinition[]>(INITIAL_METRICS);
   const [commits, setCommits] = useState<Commit[]>(GIT_COMMITS);
   const [suggestions, setSuggestions] = useState<MetricSuggestion[]>(INITIAL_SUGGESTIONS);
@@ -31,8 +31,6 @@ export default function App() {
   const [simStep, setSimStep] = useState<string>('analyzing');
   const [simLogs, setSimLogs] = useState<string[]>([]);
   const [simDiff, setSimDiff] = useState<string>('');
-
-  const [simImprovement, setSimImprovement] = useState<{ before: string; after: string; percent: string } | undefined>(undefined);
 
   // Toggle agent enablement
   const handleToggleAgent = (metricId: string) => {
@@ -76,7 +74,6 @@ export default function App() {
     };
 
     setMetrics(prev => {
-      // Check if already mapped
       if (prev.some(m => m.id === newMetric.id)) return prev;
       return [...prev, newMetric];
     });
@@ -127,7 +124,7 @@ export default function App() {
         `[20:01:19] [Lodestar AI] Found bottleneck: double nested db.recommendations.findMany query inside loop mapping.`,
         `[20:01:21] [Lodestar AI] Hypothesis formulated: implement index select pre-fetch matching + Redis caches mapping`
       ]);
-    }, 1505);
+    }, 1500);
 
     // Step 3: Testing
     setTimeout(() => {
@@ -181,7 +178,7 @@ export default function App() {
    res.json(payload);
    timer.observe();
 -});`);
-    }, 3804);
+    }, 3500);
 
     // Step 4: Verifying & Completing
     setTimeout(() => {
@@ -196,7 +193,6 @@ export default function App() {
         `[20:01:37] [Success] Created production git commit e3f1c9d. Self-approved PR #182. Merged.`
       ]);
 
-      // Complete simulation & actually update dashboard data in memory!
       setIsSimRunning(false);
       
       // Update feed-latency metric values
@@ -211,7 +207,7 @@ export default function App() {
         return m;
       }));
 
-      // Update Git history by making the agent commit the first item
+      // Update Git history
       const patchedCommit: Commit = {
         hash: 'e3f1c9d2a09f3e46b14d24a6e5b6c7a8d9f0e1a2',
         shortHash: 'e3f1c9d',
@@ -232,14 +228,12 @@ export default function App() {
       };
 
       setCommits(prev => {
-        // Replace or prepend the commit on top so it reflects the agent win
         if (prev.some(c => c.shortHash === 'e3f1c9d')) {
-          return prev; // Already there
+          return prev;
         }
         return [patchedCommit, ...prev];
       });
 
-      // Update active list of agent activities with a new verified log
       const newAct: AgentActivity = {
         id: `act-feed-sim-${Date.now()}`,
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
@@ -254,208 +248,186 @@ export default function App() {
       };
       setAgentActivities(prev => [newAct, ...prev]);
 
-    }, 6005);
+    }, 5500);
   };
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans selection:bg-blue-600/30 selection:text-white" id="main-container">
+    <div className="min-h-screen bg-[#0B0D10] text-[#E2E8F0] flex flex-col font-sans selection:bg-violet-600/30 selection:text-white" id="main-container">
       
-      {/* Dynamic top alert if there are pending suggestions */}
-      {suggestions.filter(s => s.status === 'pending').length > 0 && (
-        <div className="bg-gradient-to-r from-blue-900/60 via-purple-950/40 to-zinc-950 px-4 py-2 border-b border-blue-900/40 flex items-center justify-between text-xs font-medium">
-          <div className="flex items-center gap-2">
-            <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-            </span>
-            <span className="text-zinc-300">
-              Lodestar found <strong className="text-blue-400">{suggestions.filter(s=>s.status==='pending').length} core telemetry gap(s)</strong> in your active controllers codebase files. Recommended integrations ready.
-            </span>
-          </div>
-          <button 
-            onClick={() => setActiveTab('suggestions')} 
-            className="text-[11px] underline text-blue-400 hover:text-blue-300 font-mono flex items-center gap-1 cursor-pointer"
-          >
-            Review Gaps →
-          </button>
-        </div>
-      )}
-
-      {/* Global Header */}
-      <header className="border-b border-zinc-900 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-30" id="lodestar-header">
+      {/* 1. QUIET HEADER CHROME (NO CHUTNEY, SECURE & TRANQUIL) */}
+      <header className="border-b border-[#22262B] px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#13161B]" id="lodestar-header">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 bg-gradient-to-tr from-blue-600 to-indigo-700 rounded flex items-center justify-center text-white shadow-lg font-bold text-lg select-none">
-            🜲
+          <div className="h-7 w-7 bg-violet-600 rounded flex items-center justify-center text-white shadow-lg font-bold text-base select-none">
+            ◈
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-zinc-50 tracking-tight font-sans">Lodestar</h1>
-              <span className="bg-zinc-900 border border-zinc-800 text-zinc-500 font-mono text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider">
-                v1.0.4-beta
+              <h1 className="text-sm font-semibold text-[#E2E8F0] tracking-tight font-sans">Lodestar</h1>
+              <span className="bg-[#0B0D10] border border-[#22262B] text-[#8A94A6] font-mono text-[9px] px-1.5 py-0.2 rounded font-medium">
+                mainline-v1.0
               </span>
             </div>
-            <p className="text-[10px] text-zinc-500 font-mono mt-0.5">THE CODEBASE OBJECTIVE FUNCTION LAYER</p>
+            <p className="text-[10px] text-[#4F5B70] font-sans mt-0.5 uppercase tracking-wider font-semibold">Continuous Telemetry Control Surface</p>
           </div>
         </div>
 
         {/* Global state gauges */}
-        <div className="flex items-center gap-5 sm:gap-8 flex-wrap">
+        <div className="flex items-center gap-6 flex-wrap font-sans">
           <div className="space-y-0.5">
-            <div className="text-[9px] font-mono text-zinc-500 uppercase">Tracked Metrics</div>
-            <div className="font-mono text-xs font-medium text-zinc-200">{metrics.length} Objectives</div>
+            <div className="text-[9px] font-mono text-[#8A94A6] uppercase">Tracked Objectives</div>
+            <div className="text-xs font-semibold text-[#E2E8F0] font-mono font-tabular">{metrics.length}</div>
           </div>
           <div className="space-y-0.5">
-            <div className="text-[9px] font-mono text-zinc-500 uppercase">Git Context</div>
-            <div className="font-mono text-xs text-zinc-300 flex items-center gap-1">
-              <GitBranch className="w-3 h-3 text-zinc-400" /> main
+            <div className="text-[9px] font-mono text-[#8A94A6] uppercase">Dynamic Targets</div>
+            <div className="text-xs font-semibold text-[#E2E8F0] font-mono font-tabular">
+              {metrics.filter(m => m.targetVal !== undefined).length}
             </div>
           </div>
           <div className="space-y-0.5">
-            <div className="text-[9px] font-mono text-zinc-500 uppercase">MCP Active Channels</div>
-            <div className="font-mono text-xs text-blue-400 flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> 1 Agent Loop
-            </div>
-          </div>
-          <div className="space-y-0.5">
-            <div className="text-[9px] font-mono text-zinc-500 uppercase">Researcher State</div>
-            <div className="font-mono text-xs text-purple-400 flex items-center gap-1">
-              <span className={`h-1.5 w-1.5 rounded-full ${isSimRunning ? 'bg-blue-500 animate-ping' : 'bg-purple-400'}`} />
-              <span>{isSimRunning ? 'Optimizing...' : 'Watching'}</span>
+            <div className="text-[9px] font-mono text-[#8A94A6] uppercase">Autonomous State</div>
+            <div className="text-xs text-violet-400 font-mono font-semibold flex items-center gap-1">
+              <span className={`h-1.5 w-1.5 rounded-full ${isSimRunning ? 'bg-violet-400 animate-ping' : 'bg-[#4F5B70]'}`} />
+              <span>{isSimRunning ? 'Optimizing' : 'Active'}</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Tab Controller & Nav */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6" id="inner-stage">
-        
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-zinc-900 pb-px" id="tabs-navigation">
-          <div className="flex gap-1">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all cursor-pointer ${
-                activeTab === 'dashboard' 
-                  ? 'border-blue-500 text-white font-semibold' 
-                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
-              }`}
-              id="navigation-tab-dashboard"
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>Objectives Dashboard</span>
-            </button>
+      {/* 2. NAVIGATION SUBBAR TABS */}
+      <div className="border-b border-[#22262B] bg-[#13161B]/40">
+        <div className="max-w-7xl w-full mx-auto px-6 flex gap-1">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-all cursor-pointer ${
+              activeTab === 'dashboard' 
+                ? 'border-violet-500 text-white font-semibold' 
+                : 'border-transparent text-[#8A94A6] hover:text-[#E2E8F0]'
+            }`}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span>Objectives Dashboard</span>
+          </button>
 
-            <button
-              onClick={() => setActiveTab('suggestions')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all relative cursor-pointer ${
-                activeTab === 'suggestions' 
-                  ? 'border-blue-500 text-white font-semibold' 
-                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
-              }`}
-              id="navigation-tab-suggestions"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Suggestion Engine</span>
-              {suggestions.filter(s => s.status === 'pending').length > 0 && (
-                <span className="absolute -top-1.5 -right-1 text-[8.5px] font-bold font-mono px-1.5 py-0.2 rounded-full bg-blue-600 text-white animate-pulse">
-                  {suggestions.filter(s=>s.status==='pending').length}
-                </span>
-              )}
-            </button>
+          <button
+            onClick={() => setActiveTab('gitgraph')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-all cursor-pointer ${
+              activeTab === 'gitgraph' 
+                ? 'border-violet-500 text-white font-semibold' 
+                : 'border-transparent text-[#8A94A6] hover:text-[#E2E8F0]'
+            }`}
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+            <span>Git Network Graph</span>
+          </button>
 
-            <button
-              onClick={() => setActiveTab('mcp')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all cursor-pointer ${
-                activeTab === 'mcp' 
-                  ? 'border-blue-500 text-white font-semibold' 
-                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
-              }`}
-              id="navigation-tab-mcp"
-            >
-              <Terminal className="w-3.5 h-3.5" />
-              <span>MCP Server (AI Bridge)</span>
-            </button>
+          <button
+            onClick={() => setActiveTab('suggestions')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-all relative cursor-pointer ${
+              activeTab === 'suggestions' 
+                ? 'border-violet-500 text-white font-semibold' 
+                : 'border-transparent text-[#8A94A6] hover:text-[#E2E8F0]'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Gaps Suggestion Link</span>
+            {suggestions.filter(s => s.status === 'pending').length > 0 && (
+              <span className="absolute top-1 right-1 text-[8px] font-bold font-mono px-1.5 py-0.1 bg-violet-600 text-white rounded-full">
+                {suggestions.filter(s=>s.status==='pending').length}
+              </span>
+            )}
+          </button>
 
-            <button
-              onClick={() => setActiveTab('agent')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all cursor-pointer ${
-                activeTab === 'agent' 
-                  ? 'border-blue-500 text-white font-semibold' 
-                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
-              }`}
-              id="navigation-tab-agent"
-            >
-              <Cpu className="w-3.5 h-3.5" />
-              <span>Autonomous Researcher</span>
-              {isSimRunning && (
-                <span className="h-1.5 w-1.5 bg-blue-400 rounded-full animate-bounce ml-1 shrink-0" />
-              )}
-            </button>
-          </div>
+          <button
+            onClick={() => setActiveTab('agent')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-all cursor-pointer relative ${
+              activeTab === 'agent' 
+                ? 'border-violet-500 text-white font-semibold' 
+                : 'border-transparent text-[#8A94A6] hover:text-[#E2E8F0]'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            <span>Researcher Console</span>
+            {isSimRunning && (
+              <span className="h-1.5 w-1.5 bg-violet-400 rounded-full animate-ping ml-1" />
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('mcp')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 transition-all cursor-pointer ${
+              activeTab === 'mcp' 
+                ? 'border-violet-500 text-white font-semibold' 
+                : 'border-transparent text-[#8A94A6] hover:text-[#E2E8F0]'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            <span>MCP Server</span>
+          </button>
         </div>
+      </div>
 
-        {/* Tab content renderer */}
+      {/* 3. CONTENT STAGE */}
+      <div className="flex-1 max-w-7xl w-full mx-auto p-5 sm:p-6" id="inner-stage">
         <main className="min-h-[500px]" id="tab-outlet">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 3 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -3 }}
-              transition={{ duration: 0.15 }}
-            >
-              {activeTab === 'dashboard' && (
-                <Dashboard 
-                  metrics={metrics}
-                  commits={commits}
-                  onToggleAgent={handleToggleAgent}
-                  selectedMetricId={selectedMetricId}
-                  setSelectedMetricId={setSelectedMetricId}
-                  onTriggerAgentSim={handleTriggerAgentSim}
-                />
-              )}
+          {activeTab === 'dashboard' && (
+            <Dashboard 
+              metrics={metrics}
+              commits={commits}
+              onToggleAgent={handleToggleAgent}
+              selectedMetricId={selectedMetricId}
+              setSelectedMetricId={setSelectedMetricId}
+              onTriggerAgentSim={handleTriggerAgentSim}
+              isSimulating={isSimRunning}
+            />
+          )}
 
-              {activeTab === 'suggestions' && (
-                <Suggestions 
-                  suggestions={suggestions}
-                  onAcceptSuggestion={handleAcceptSuggestion}
-                  onIgnoreSuggestion={handleIgnoreSuggestion}
-                />
-              )}
+          {activeTab === 'gitgraph' && (
+            <GitGraph 
+              commits={commits}
+              metrics={metrics}
+            />
+          )}
 
-              {activeTab === 'mcp' && (
-                <McpServer 
-                  logs={mcpLogs}
-                  onAddLog={handleAddMcpLog}
-                />
-              )}
+          {activeTab === 'suggestions' && (
+            <Suggestions 
+              suggestions={suggestions}
+              onAcceptSuggestion={handleAcceptSuggestion}
+              onIgnoreSuggestion={handleIgnoreSuggestion}
+            />
+          )}
 
-              {activeTab === 'agent' && (
-                <AgentConsole 
-                  activities={agentActivities}
-                  onTriggerAgentSim={handleTriggerAgentSim}
-                  isSimRunning={isSimRunning}
-                  simLogs={simLogs}
-                  simStep={simStep}
-                  simDiff={simDiff}
-                />
-              )}
-            </motion.div>
-          </AnimatePresence>
+          {activeTab === 'mcp' && (
+            <McpServer 
+              logs={mcpLogs}
+              onAddLog={handleAddMcpLog}
+            />
+          )}
+
+          {activeTab === 'agent' && (
+            <AgentConsole 
+              activities={agentActivities}
+              onTriggerAgentSim={handleTriggerAgentSim}
+              isSimRunning={isSimRunning}
+              simLogs={simLogs}
+              simStep={simStep}
+              simDiff={simDiff}
+            />
+          )}
         </main>
       </div>
 
-      {/* Footer */}
-      <footer className="border-t border-zinc-900 bg-zinc-950/65 py-5 px-6 shrink-0 mt-20" id="lodestar-footer">
-        <div className="max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-zinc-500 font-mono">
+      {/* 4. FOOTER */}
+      <footer className="border-t border-[#22262B] bg-[#13161B]/30 py-5 px-6 shrink-0 mt-16" id="lodestar-footer">
+        <div className="max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-[#4F5B70] font-mono">
           <div className="flex items-center gap-1.5">
-            <span>© 2026 Lodestar Inc.</span>
+            <span>© 2026 Lodestar Control Surface.</span>
             <span>•</span>
-            <span className="text-zinc-400">continuous-research-engine=enabled</span>
+            <span className="text-[#8A94A6]">continuous-research-engine=active</span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="#mcp" onClick={(e) => { e.preventDefault(); setActiveTab('mcp'); }} className="hover:text-zinc-300">mcp configuration schema</a>
-            <a href="#dashboard" onClick={(e) => { e.preventDefault(); setActiveTab('dashboard'); }} className="hover:text-zinc-300 font-semibold text-blue-500">docs/sdk-reference</a>
+            <a href="#mcp" onClick={(e) => { e.preventDefault(); setActiveTab('mcp'); }} className="hover:text-zinc-350">mcp configuration standard</a>
+            <span>•</span>
+            <span className="text-violet-400">docs/sdk-spec</span>
           </div>
         </div>
       </footer>

@@ -205,6 +205,23 @@ export const GIT_COMMITS: Commit[] = [
     regressions: []
   },
   {
+    hash: 'd1e8c7a8a09f3e46b14d24a6e5b6c7a8d9f0e1a2',
+    shortHash: 'd1e8c7a',
+    branch: 'feature/llm-optimization',
+    author: 'Marcus Chen',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=80&q=80',
+    date: '2026-05-31 15:10',
+    message: 'feat: optimize LLM request parameters by compressing visual frames & system prompt layout',
+    metrics: {
+      'api-feed-latency': 148.2,
+      'bundle-size-main': 182.1,
+      'test-coverage': 88.4,
+      'db-pool-exhaustion': 12.3,
+      'cache-hit-rate': 74.5,
+      'llm-inference-cost': 0.032
+    }
+  },
+  {
     hash: 'df84a0c11be3092f3de1f8d4e9b8c0a3f5d2b7c1',
     shortHash: 'df84a0c',
     branch: 'main',
@@ -241,6 +258,23 @@ export const GIT_COMMITS: Commit[] = [
       'db-pool-exhaustion': 12.9,
       'cache-hit-rate': 74.8,
       'llm-inference-cost': 0.072
+    }
+  },
+  {
+    hash: 'f2a7db53a09f3e46b14d24a6e5b6c7a8d9f0e1a2',
+    shortHash: 'f2a7db5',
+    branch: 'feature/redis-pooling',
+    author: 'Sarah Jenkins',
+    avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=80&q=80',
+    date: '2026-05-30 14:20',
+    message: 'perf: implement connection pooling using generic pool wrapper under high concurrent load',
+    metrics: {
+      'api-feed-latency': 158.4,
+      'bundle-size-main': 146.2,
+      'test-coverage': 88.5,
+      'db-pool-exhaustion': 4.1,
+      'cache-hit-rate': 74.0,
+      'llm-inference-cost': 0.074
     }
   },
   {

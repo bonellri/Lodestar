@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { MetricDefinition, Commit } from '../types';
 import { 
-  Search, Play, GitBranch, GitCommit, ArrowUpRight, ArrowDownRight, CheckCircle2, 
-  AlertTriangle, Code, PlaySquare, Shield, HelpCircle, Activity, ChevronRight, Check
+  Search, Play, GitBranch, GitCommit, ArrowUpRight, ArrowDownRight, Check,
+  AlertTriangle, Code, Shield, Activity, ChevronRight, CheckCircle2, SlidersHorizontal,
+  Plus, HelpCircle
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 
 interface DashboardProps {
   metrics: MetricDefinition[];
@@ -13,6 +13,7 @@ interface DashboardProps {
   selectedMetricId: string;
   setSelectedMetricId: (id: string) => void;
   onTriggerAgentSim: (metricId: string) => void;
+  isSimulating: boolean;
 }
 
 export default function Dashboard({
@@ -21,11 +22,13 @@ export default function Dashboard({
   onToggleAgent,
   selectedMetricId,
   setSelectedMetricId,
-  onTriggerAgentSim
+  onTriggerAgentSim,
+  isSimulating
 }: DashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'performance' | 'quality' | 'size' | 'cost'>('all');
-  const [selectedBranch, setSelectedBranch] = useState<'all' | 'main' | 'feature/carousel-v2'>('all');
+  const [sortField, setSortField] = useState<'name' | 'current' | 'trend'>('name');
+  const [sortAsc, setSortAsc] = useState<boolean>(true);
 
   const selectedMetric = metrics.find(m => m.id === selectedMetricId) || metrics[0];
 
@@ -37,431 +40,527 @@ export default function Dashboard({
     return matchesSearch && matchesCategory;
   });
 
-  const filteredCommits = commits.filter(commit => {
-    if (selectedBranch === 'all') return true;
-    return commit.branch === selectedBranch;
-  });
-
   // Calculate trends for a metric
   const getTrendData = (metric: MetricDefinition) => {
-    if (!metric.history || metric.history.length < 2) return { direction: 'flat', percentage: 0 };
+    if (!metric.history || metric.history.length < 2) {
+      return { isImprovement: false, isRegression: false, percent: '0.0', rawDiff: 0, valueDiffStr: '0' };
+    }
     const values = metric.history.map(h => h.value);
     const first = values[0];
     const last = values[values.length - 1];
     
-    // Invert interpretation if minimize is desired
+    // Percent difference
     const rawDiff = last - first;
-    const percent = Math.abs((rawDiff / first) * 100);
+    const percent = first === 0 ? 0 : Math.abs((rawDiff / first) * 100);
     
-    let isPositiveForUser = false;
-    if (metric.direction === 'minimize') {
-      isPositiveForUser = rawDiff < 0; // Less is better
-    } else {
-      isPositiveForUser = rawDiff > 0; // More is better
+    let isImprovement = false;
+    let isRegression = false;
+
+    if (rawDiff === 0) {
+      // flat
+    } else if (metric.direction === 'minimize') {
+      if (rawDiff < 0) {
+        isImprovement = true;
+      } else {
+        isRegression = true;
+      }
+    } else if (metric.direction === 'maximize') {
+      if (rawDiff > 0) {
+        isImprovement = true;
+      } else {
+        isRegression = true;
+      }
     }
 
     return {
-      rawDiff,
+      isImprovement,
+      isRegression,
       percent: percent.toFixed(1),
-      isImprovement: rawDiff === 0 ? null : isPositiveForUser,
-      valueDiffStr: `${rawDiff > 0 ? '+' : ''}${rawDiff.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+      rawDiff,
+      valueDiffStr: `${rawDiff > 0 ? '+' : ''}${parseFloat(rawDiff.toFixed(4)).toString()}`
     };
   };
 
-  // SVG Line Path calculation for history
-  const generateChartPath = (history: { value: number }[], width: number, height: number, minVal: number, maxVal: number) => {
+  // SVG Line Path calculation for sparkline
+  const generateSparkline = (history: { value: number }[], width: number, height: number) => {
     if (!history || history.length < 2) return '';
+    const vals = history.map(h => h.value);
+    const minVal = Math.min(...vals);
+    const maxVal = Math.max(...vals);
+    const range = maxVal - minVal || 1;
+
     const points = history.map((pt, i) => {
       const x = (i / (history.length - 1)) * width;
-      // y is inverted in SVG coordinates
-      const valRange = maxVal - minVal || 1;
-      const y = height - ((pt.value - minVal) / valRange) * (height - 16) - 8;
+      // y is inverted in SVG, offset by padding
+      const y = height - ((pt.value - minVal) / range) * (height - 6) - 3;
       return `${x},${y}`;
     });
     return `M ${points.join(' L ')}`;
   };
 
+  // Sorting
+  const sortedMetrics = [...filteredMetrics].sort((a, b) => {
+    if (sortField === 'name') {
+      return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+    } else if (sortField === 'current') {
+      return sortAsc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal;
+    } else if (sortField === 'trend') {
+      const trendA = parseFloat(getTrendData(a).percent) * (getTrendData(a).isRegression ? 1 : -1);
+      const trendB = parseFloat(getTrendData(b).percent) * (getTrendData(b).isRegression ? 1 : -1);
+      return sortAsc ? trendA - trendB : trendB - trendA;
+    }
+    return 0;
+  });
+
+  const handleSort = (field: 'name' | 'current' | 'trend') => {
+    if (sortField === field) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortField(field);
+      setSortAsc(true);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="dashboard-layout">
-      {/* LEFT: Metrics Discovery List */}
-      <div className="lg:col-span-12 xl:col-span-7 space-y-4" id="metrics-browser-pane">
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between pb-2">
-          {/* Category tabs */}
-          <div className="flex bg-[#09090b]/40 p-1 rounded-lg border border-zinc-800/80 w-auto self-start">
-            {(['all', 'performance', 'quality', 'size', 'cost'] as const).map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={`px-3 py-1 text-xs rounded-md transition-all font-sans font-medium capitalize cursor-pointer ${
-                  categoryFilter === cat 
-                    ? 'bg-zinc-800 text-white shadow-sm' 
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-                id={`filter-tab-${cat}`}
-              >
-                {cat === 'quality' ? 'Quality' : cat}
-              </button>
-            ))}
+    <div className="space-y-6" id="dashboard-root-view">
+      
+      {/* 1. TOP DENSE STAT STRIP */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#22262B] border border-[#22262B] rounded-lg overflow-hidden shrink-0" id="stat-strip">
+        <div className="bg-[#13161B] p-4 text-left">
+          <div className="text-[11px] font-medium text-[#8A94A6] uppercase tracking-wider font-sans">Active Objectives</div>
+          <div className="flex items-baseline gap-1.5 mt-1">
+            <span className="font-mono text-xl font-semibold text-[#E2E8F0]">{metrics.length}</span>
+            <span className="text-[11px] text-[#4F5B70] font-sans">tracked</span>
           </div>
-
-          {/* Search bar */}
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
-            <input
-              type="text"
-              placeholder="Search objective metrics..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-[#18181b]/50 border border-zinc-800/80 rounded-md pl-9 pr-4 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-blue-500 font-sans transition-colors"
-              id="metric-search-input"
-            />
-          </div>
+          <div className="text-[10px] text-[#4F5B70] font-sans mt-0.5">Coverage metric, API speed, costs</div>
         </div>
 
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3" id="metrics-grid">
-          {filteredMetrics.map((metric) => {
-            const trend = getTrendData(metric);
-            const isSelected = metric.id === selectedMetricId;
-            const historyVals = metric.history.map(h => h.value);
-            const minH = Math.min(...historyVals);
-            const maxH = Math.max(...historyVals);
-            
-            // Build sparkline path representation
-            const sparklinePath = generateChartPath(metric.history, 80, 28, minH, maxH);
-
-            return (
-              <div
-                key={metric.id}
-                onClick={() => setSelectedMetricId(metric.id)}
-                className={`p-4 rounded-lg border text-left cursor-pointer transition-all flex flex-col justify-between h-40 ${
-                  isSelected 
-                    ? 'bg-[#18181b]/90 border-blue-500/80 shadow-[0_0_12px_rgba(59,130,246,0.15)]' 
-                    : 'bg-[#121214]/60 border-zinc-850 hover:bg-[#18181b]/40 hover:border-zinc-800'
-                }`}
-                id={`metric-card-${metric.id}`}
-              >
-                <div>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className={`text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded ${
-                        metric.category === 'performance' ? 'bg-amber-950/40 text-amber-400 border border-amber-900/30' :
-                        metric.category === 'cost' ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-900/30' :
-                        metric.category === 'size' ? 'bg-purple-950/40 text-purple-400 border border-purple-900/30' :
-                        'bg-zinc-900 text-zinc-400 border border-zinc-800/50'
-                      }`}>
-                        {metric.category}
-                      </span>
-                      <h3 className="text-[13px] font-medium text-zinc-100 mt-2 font-sans truncate pr-4">{metric.name}</h3>
-                    </div>
-                    {/* Sparkline */}
-                    <div className="w-20 h-8 opacity-70">
-                      <svg width="100%" height="100%" viewBox="0 0 80 28" className="overflow-visible">
-                        <path
-                          d={sparklinePath}
-                          stroke={trend.isImprovement ? '#10b981' : trend.isImprovement === false ? '#ef4444' : '#a1a1aa'}
-                          strokeWidth="1.5"
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-zinc-400 font-sans line-clamp-2 mt-1.5 min-h-[32px]">
-                    {metric.description}
-                  </p>
-                </div>
-
-                <div className="flex items-end justify-between pt-1 border-t border-zinc-900">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="font-mono text-base font-semibold text-zinc-100">{metric.currentVal}</span>
-                    <span className="font-mono text-[10px] text-zinc-500">{metric.unit}</span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    {trend.isImprovement !== null && (
-                      <span className={`flex items-center font-mono text-[11px] font-medium ${
-                        trend.isImprovement ? 'text-emerald-400' : 'text-rose-400'
-                      }`}>
-                        {trend.isImprovement ? <ArrowDownRight className="w-3 w-3 mr-0.5" /> : <ArrowUpRight className="w-3 w-3 mr-0.5" />}
-                        {trend.percent}%
-                      </span>
-                    )}
-                    {metric.enabledForAgent && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" title="Autonomous Agent Attached" />
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+        <div className="bg-[#13161B] p-4 text-left">
+          <div className="text-[11px] font-medium text-[#8A94A6] uppercase tracking-wider font-sans">Branch Targets</div>
+          <div className="flex items-baseline gap-1.5 mt-1">
+            <span className="font-mono text-base font-semibold text-violet-400 bg-violet-400/5 px-2 py-0.5 rounded border border-violet-500/10">main</span>
+            <span className="text-[11px] text-[#4F5B70] font-sans">active</span>
+          </div>
+          <div className="text-[10px] text-[#4F5B70] font-sans mt-0.5">Evaluating pull-requests dynamically</div>
         </div>
 
-        {/* Git Commits Log */}
-        <div className="bg-[#121214]/60 border border-zinc-850 rounded-lg p-5 space-y-4" id="recent-commits-feed">
-          <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
-            <div className="flex items-center gap-2">
-              <GitCommit className="w-4 h-4 text-zinc-400" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Commit Metrics Pipeline</h2>
-            </div>
-            
-            {/* Branch selector */}
-            <select
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value as any)}
-              className="bg-zinc-900 border border-zinc-800 text-zinc-300 font-mono text-[11px] py-1 px-2.5 rounded hover:border-zinc-700 outline-none cursor-pointer"
-            >
-              <option value="all">All Branches</option>
-              <option value="main">main</option>
-              <option value="feature/carousel-v2">feature/carousel-v2</option>
-            </select>
+        <div className="bg-[#13161B] p-4 text-left">
+          <div className="text-[11px] font-medium text-[#8A94A6] uppercase tracking-wider font-sans">Autonomous Pipelines</div>
+          <div className="flex items-baseline gap-1.5 mt-1">
+            <span className="font-mono text-xl font-semibold text-emerald-400">
+              {metrics.filter(m => m.enabledForAgent).length}
+            </span>
+            <span className="text-[11px] text-[#4F5B70] font-sans">active loops</span>
           </div>
+          <div className="text-[10px] text-[#4F5B70] font-sans mt-0.5">Continuous auto-optimization auto-enabled</div>
+        </div>
 
-          <div className="space-y-3.5 max-h-[380px] overflow-y-auto pr-1">
-            {filteredCommits.map((commit) => (
-              <div 
-                key={commit.hash} 
-                className="group flex items-start justify-between p-3 rounded-lg border border-transparent hover:border-zinc-850 bg-zinc-900/20 hover:bg-[#18181b]/30 transition-all"
-              >
-                <div className="flex items-start gap-3 flex-1 min-w-0 pr-4">
-                  <img 
-                    src={commit.avatarUrl} 
-                    alt={commit.author} 
-                    className="w-6 h-6 rounded-full border border-zinc-800 mt-0.5 object-cover" 
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-[12px] text-zinc-200 font-sans line-clamp-1">
-                      {commit.message}
-                    </p>
-                    <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500">
-                      <span className="text-zinc-400 font-medium">{commit.author}</span>
-                      <span>•</span>
-                      <span className="bg-zinc-800 text-zinc-400 px-1.5 py-0.2 rounded text-[9px] flex items-center gap-0.5 font-sans">
-                        <GitBranch className="w-2.5 h-2.5 inline" /> {commit.branch}
-                      </span>
-                      <span>•</span>
-                      <span>{commit.shortHash}</span>
-                      <span>•</span>
-                      <span>{commit.date}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Metrics on Commit */}
-                <div className="flex items-center gap-3 shrink-0">
-                  {/* If regression is recorded */}
-                  {commit.regressions && commit.regressions.length > 0 ? (
-                    <div className="flex items-center gap-1.5 bg-rose-500/10 text-rose-400 border border-rose-950/60 px-2 py-1 rounded text-[11px] font-mono">
-                      <AlertTriangle className="w-3 w-3 shrink-0 animate-bounce" />
-                      <span>{commit.regressions.length} Regression Warning</span>
-                    </div>
-                  ) : commit.shortHash === 'e3f1c9d' ? (
-                    <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-950/60 px-2 by-1 rounded text-[10px] font-mono">
-                      <CheckCircle2 className="w-3.5 w-3.5 shrink-0" />
-                      <span>Agent Fixed</span>
-                    </div>
-                  ) : (
-                    <div className="hidden sm:flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/80" />
-                      <span className="text-[10px] text-zinc-500 font-mono">Telemetry Safe</span>
-                    </div>
-                  )}
-
-                  <ChevronRight className="w-4 h-4 text-zinc-650 group-hover:text-zinc-400 transition-colors" />
-                </div>
-              </div>
-            ))}
+        <div className="bg-[#13161B] p-4 text-left">
+          <div className="text-[11px] font-medium text-[#8A94A6] uppercase tracking-wider font-sans">Researcher Daemon</div>
+          <div className="flex items-baseline gap-1.5 mt-1">
+            <span className="font-mono text-xs font-semibold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20 flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full bg-amber-400 ${isSimulating ? 'animate-ping' : ''}`} />
+              {isSimulating ? 'simulating patch' : 'idle daemon'}
+            </span>
           </div>
+          <div className="text-[10px] text-[#4F5B70] font-sans mt-0.5">Monitoring commit regressions</div>
         </div>
       </div>
 
-      {/* RIGHT: Metric Deep Dive and AI Agent Control */}
-      <div className="lg:col-span-12 xl:col-span-5 space-y-6" id="dashboard-details-pane">
-        <div className="bg-[#121214]/60 border border-zinc-850 rounded-lg p-5 space-y-6 sticky top-4">
+      {/* 2. MAIN LAYOUT: TABLES ON LEFT (60%), HIGH-DENSITY DRILL DOWN ON RIGHT (40%) */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+        
+        {/* OBJECTIVES TABLE WINDOW */}
+        <div className="xl:col-span-7 bg-[#13161B] border border-[#22262B] rounded-lg overflow-hidden flex flex-col" id="objectives-table-container">
           
-          {/* Section Header */}
-          <div className="flex items-start justify-between border-b border-zinc-900 pb-3">
-            <div>
-              <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Selected Telemetry Objective</p>
-              <h2 className="text-sm font-semibold text-zinc-100 font-sans flex items-center gap-2 mt-1">
-                {selectedMetric.name}
-              </h2>
+          {/* Header Actions */}
+          <div className="p-4 border-b border-[#22262B] flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-[#13161B]">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-violet-500" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-[#E2E8F0] font-sans">Codebase Objectives</h2>
+              <span className="text-[10px] bg-[#1E232B] px-1.5 py-0.5 rounded font-mono text-[#4F5B70]">v1.0.4</span>
             </div>
-            <div className="flex flex-col items-end">
-              <span className="text-xs font-mono text-zinc-400">{selectedMetric.currentVal} <span className="text-[10px] text-zinc-500">{selectedMetric.unit}</span></span>
-              <span className="text-[9px] text-zinc-500 font-mono mt-0.5">Target: {selectedMetric.targetVal || 'none'} {selectedMetric.unit}</span>
+
+            {/* Filter Group */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-3 w-3 text-[#4F5B70]" />
+                <input
+                  type="text"
+                  placeholder="Filter objectives..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="bg-[#0B0D10] border border-[#22262B] rounded pl-8 pr-3 py-1 text-xs text-[#E2E8F0] placeholder-[#4F5B70] outline-none focus:border-violet-500/50 w-full sm:w-44 transition-all font-sans"
+                />
+              </div>
+
+              <div className="flex bg-[#0B0D10] border border-[#22262B] p-0.5 rounded">
+                {(['all', 'performance', 'quality', 'size', 'cost'] as const).map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setCategoryFilter(cat)}
+                    className={`px-2 py-0.5 rounded text-[11px] font-sans font-medium capitalize cursor-pointer transition-colors ${
+                      categoryFilter === cat 
+                        ? 'bg-[#22262B] text-[#E2E8F0]' 
+                        : 'text-[#8A94A6] hover:text-[#E2E8F0]'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Historical SVG Graph */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500">
-              <span>Historical Trend (Git History)</span>
-              <span>{selectedMetric.direction === 'minimize' ? 'Lower is Better 🡫' : 'Higher is Better 🡩'}</span>
+          {/* Table Element */}
+          <div className="overflow-x-auto min-h-[350px]">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-[#22262B] bg-[#0E1114]">
+                  <th onClick={() => handleSort('name')} className="p-3 text-[11px] font-semibold text-[#8A94A6] select-none cursor-pointer hover:text-[#E2E8F0] font-sans">
+                    Objective Name {sortField === 'name' && (sortAsc ? '↑' : '↓')}
+                  </th>
+                  <th className="p-3 text-[11px] font-semibold text-[#8A94A6] font-sans text-center">Direction</th>
+                  <th className="p-3 text-[11px] font-semibold text-[#8A94A6] font-sans">Sparkline</th>
+                  <th onClick={() => handleSort('current')} className="p-3 text-[11px] font-semibold text-[#8A94A6] select-none cursor-pointer hover:text-[#E2E8F0] font-sans text-right">
+                    Current {sortField === 'current' && (sortAsc ? '↑' : '↓')}
+                  </th>
+                  <th onClick={() => handleSort('trend')} className="p-3 text-[11px] font-semibold text-[#8A94A6] select-none cursor-pointer hover:text-[#E2E8F0] font-sans text-right">
+                    TrendDelta {sortField === 'trend' && (sortAsc ? '↑' : '↓')}
+                  </th>
+                  <th className="p-3 text-[11px] font-semibold text-[#8A94A6] font-sans text-center">Auto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#1D2128]">
+                {sortedMetrics.map(metric => {
+                  const isSelected = metric.id === selectedMetricId;
+                  const trend = getTrendData(metric);
+                  const path = generateSparkline(metric.history, 75, 18);
+
+                  return (
+                    <tr
+                      key={metric.id}
+                      onClick={() => setSelectedMetricId(metric.id)}
+                      className={`hover:bg-[#1D2128]/40 transition-colors cursor-pointer text-xs ${
+                        isSelected ? 'bg-violet-500/5 font-medium' : ''
+                      }`}
+                    >
+                      <td className="p-3 font-sans max-w-[200px]">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                            metric.category === 'performance' ? 'bg-amber-400' :
+                            metric.category === 'size' ? 'bg-fuchsia-400' :
+                            metric.category === 'cost' ? 'bg-emerald-400' :
+                            metric.category === 'quality' ? 'bg-blue-400' :
+                            'bg-zinc-400'
+                          }`} />
+                          <div className="truncate">
+                            <div className="text-[#E2E8F0] font-medium truncate">{metric.name}</div>
+                            <div className="text-[#4E5664] text-[10.5px] truncate font-sans">{metric.description}</div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="p-3 text-center">
+                        <span className="text-[10px] font-mono text-[#8A94A6] bg-[#0E1114] px-1.5 py-0.5 rounded border border-[#22262B]">
+                          {metric.direction === 'minimize' ? 'min' : metric.direction === 'maximize' ? 'max' : 'hold'}
+                        </span>
+                      </td>
+
+                      <td className="p-3">
+                        <div className="w-[80px] h-[20px]">
+                          <svg width="100%" height="100%" viewBox="0 0 75 18" className="overflow-visible">
+                            <path
+                              d={path}
+                              stroke={trend.isImprovement ? '#10B981' : trend.isRegression ? '#EF4444' : '#8A94A6'}
+                              strokeWidth="1.2"
+                              fill="none"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </div>
+                      </td>
+
+                      <td className="p-3 font-mono text-[#E2E8F0] text-right font-tabular">
+                        {metric.currentVal.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 4 })}
+                        <span className="text-[#4F5B70] text-[10px] ml-0.5 font-sans">{metric.unit}</span>
+                      </td>
+
+                      <td className="p-3 text-right">
+                        {trend.rawDiff !== 0 ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <span className={`font-mono text-[11px] font-semibold font-tabular ${
+                              trend.isImprovement ? 'text-emerald-400' : 'text-rose-400'
+                            }`}>
+                              {trend.isImprovement ? '-' : '+'}{trend.percent}%
+                            </span>
+                            <span className="text-[#4F5B70] text-[10px] font-mono">
+                              ({trend.valueDiffStr})
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[#4F5B70] font-mono font-tabular">-</span>
+                        )}
+                      </td>
+
+                      <td className="p-3 text-center">
+                        <span className={`inline-block h-2 w-2 rounded-full ${metric.enabledForAgent ? 'bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-[#22262B]'}`} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {sortedMetrics.length === 0 && (
+              <div className="p-8 text-center text-xs text-[#4F5B70] font-sans">
+                No telemetry objectives fit the search criteria.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* DETAILED DRILL DOWN PANEL ON RIGHT (40%) */}
+        <div className="xl:col-span-5 bg-[#13161B] border border-[#22262B] rounded-lg overflow-hidden flex flex-col sticky top-4" id="drilldown-detail-pane">
+          <div className="p-4 border-b border-[#22262B] flex items-center justify-between bg-[#13161B]">
+            <div>
+              <div className="text-[10px] font-bold text-[#8A94A6] uppercase tracking-wider font-sans">Focus Metric Details</div>
+              <h3 className="text-sm font-semibold text-[#E2E8F0] font-sans mt-0.5">{selectedMetric.name}</h3>
             </div>
-            <div className="h-44 bg-zinc-950/80 rounded border border-zinc-900 relative flex items-center justify-center p-4 overflow-hidden">
-              {/* Background grid lines */}
-              <div className="absolute inset-x-0 top-1/4 border-t border-zinc-900/40" />
-              <div className="absolute inset-x-0 top-2/4 border-t border-zinc-900/40" />
-              <div className="absolute inset-x-0 top-3/4 border-t border-zinc-900/40" />
+            <span className="text-[10px] px-2 py-0.5 bg-violet-600/10 text-violet-400 rounded-full border border-violet-500/20 font-sans capitalize">
+              {selectedMetric.category}
+            </span>
+          </div>
+
+          <div className="p-4 space-y-5">
+            {/* Real Stats Box */}
+            <div className="grid grid-cols-3 gap-px bg-[#22262B] border border-[#22262B] rounded overflow-hidden">
+              <div className="bg-[#0B0D10] p-2.5 text-center">
+                <div className="text-[10px] text-[#8A94A6] font-sans">Current Value</div>
+                <div className="font-mono text-sm font-semibold text-[#E2E8F0] mt-0.5 font-tabular">
+                  {selectedMetric.currentVal}
+                  <span className="text-[10px] font-sans text-[#4F5B70] font-normal ml-0.5">{selectedMetric.unit}</span>
+                </div>
+              </div>
+              <div className="bg-[#0B0D10] p-2.5 text-center">
+                <div className="text-[10px] text-[#8A94A6] font-sans">Previous Value</div>
+                <div className="font-mono text-sm text-[#8A94A6] mt-0.5 font-tabular">
+                  {selectedMetric.previousVal}
+                  <span className="text-[10.5px] font-sans text-[#4F5B70] ml-0.5">{selectedMetric.unit}</span>
+                </div>
+              </div>
+              <div className="bg-[#0B0D10] p-2.5 text-center">
+                <div className="text-[10px] text-[#8A94A6] font-sans">Target Goal</div>
+                <div className="font-mono text-sm font-semibold text-violet-400 mt-0.5 font-tabular">
+                  {selectedMetric.targetVal !== undefined ? selectedMetric.targetVal : 'None'}
+                  <span className="text-[10.5px] font-sans text-[#4F5B70] font-normal ml-0.5">{selectedMetric.unit}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* HIGH PRECISION GIT TREND GRAPH */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] font-sans text-[#8A94A6]">
+                <span>Historical Telemetry (Git Commit Flow)</span>
+                <span className="text-[10px] text-[#4F5B70]">Hover nodes for details</span>
+              </div>
               
-              <svg width="100%" height="100%" className="overflow-visible select-none pointer-events-auto">
-                {(() => {
+              <div className="h-44 bg-[#0B0D10] rounded border border-[#22262B] relative p-3 overflow-hidden select-none">
+                {/* 3 Gridlines */}
+                <div className="absolute inset-x-0 top-1/4 border-t border-[#22262B]/50 pointer-events-none" />
+                <div className="absolute inset-x-0 top-2/4 border-t border-[#22262B]/50 pointer-events-none" />
+                <div className="absolute inset-x-0 top-3/4 border-t border-[#22262B]/50 pointer-events-none" />
+
+                {/* Target line if set */}
+                {selectedMetric.targetVal !== undefined && (() => {
                   const values = selectedMetric.history.map(h => h.value);
                   const min = Math.min(...values) * 0.9;
                   const max = Math.max(...values) * 1.1;
                   const range = max - min || 1;
-                  const path = generateChartPath(selectedMetric.history, 400, 150, min, max);
-
-                  return (
-                    <>
-                      <defs>
-                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.1" />
-                          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-                        </linearGradient>
-                      </defs>
-                      
-                      {/* Area projection */}
-                      <path
-                        d={`${path} L 400,150 L 0,150 Z`}
-                        fill="url(#chartGradient)"
-                        className="opacity-70 transition-all duration-300"
-                      />
-                      {/* Line projection */}
-                      <path
-                        d={path}
-                        fill="none"
-                        stroke="#3b82f6"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="transition-all duration-300"
-                      />
-
-                      {/* Points markup with hover annotations */}
-                      {selectedMetric.history.map((pt, idx) => {
-                        const x = (idx / (selectedMetric.history.length - 1)) * 360 + 20;
-                        const y = 144 - ((pt.value - min) / range) * 120 - 10;
-                        const commitInfo = commits.find(c => c.shortHash === pt.commitHash);
-
-                        return (
-                          <g key={pt.commitHash} className="group cursor-help">
-                            <circle
-                              cx={x}
-                              cy={y}
-                              r="4.5"
-                              fill="#09090b"
-                              stroke="#60a5fa"
-                              strokeWidth="2"
-                            />
-                            {/* Monospace tooltip simulation on hover */}
-                            <foreignObject x={idx === 0 ? x : x - 70} y={y - 50} width="140" height="40" className="overflow-visible pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-20">
-                              <div className="bg-zinc-900 border border-zinc-850 px-2 py-1 rounded shadow-xl text-[9px] font-mono text-zinc-300">
-                                <div className="text-white font-semibold truncate leading-none mb-0.5">Commit {pt.commitHash}</div>
-                                <div className="flex justify-between">
-                                  <span>Value:</span> 
-                                  <span className="text-blue-400 font-bold">{pt.value}</span>
-                                </div>
-                              </div>
-                            </foreignObject>
-                          </g>
-                        );
-                      })}
-                    </>
-                  );
+                  const targetY = 150 - ((selectedMetric.targetVal - min) / range) * 115 - 12;
+                  
+                  if (targetY > 0 && targetY < 150) {
+                    return (
+                      <div 
+                        className="absolute inset-x-0 border-t border-dashed border-violet-500/50 pointer-events-none flex justify-end pr-2"
+                        style={{ top: `${targetY}px` }}
+                      >
+                        <span className="bg-[#0B0D10] px-1 text-[9px] font-mono text-violet-400/90 tracking-tight -translate-y-2">Goal Limit</span>
+                      </div>
+                    );
+                  }
+                  return null;
                 })()}
-              </svg>
-            </div>
-            
-            {/* Git hashes along the x-axis */}
-            <div className="flex justify-between px-2 text-[9px] font-mono text-zinc-500">
-              {selectedMetric.history.map(h => (
-                <span key={h.commitHash} className="hover:text-zinc-300 cursor-pointer">{h.commitHash}</span>
-              ))}
-            </div>
-          </div>
 
-          {/* Autonomous Optimization Control Shield */}
-          <div className="bg-[#18181b]/40 border border-zinc-800/80 rounded-lg p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Shield className="w-4 h-4 text-zinc-400" />
-                <div>
-                  <h3 className="text-xs font-semibold text-zinc-100 font-sans">Autonomous AI Research Agent</h3>
-                  <p className="text-[10px] text-zinc-400 font-sans mt-0.5">Let agents hypothesize, test, and patch this metric</p>
+                <svg width="100%" height="90%" className="overflow-visible overflow-y-visible pointer-events-auto">
+                  {(() => {
+                    const values = selectedMetric.history.map(h => h.value);
+                    const min = Math.min(...values) * 0.9;
+                    const max = Math.max(...values) * 1.1;
+                    const range = max - min || 1;
+                    const svgWidth = 320;
+                    const svgHeight = 110;
+
+                    const points = selectedMetric.history.map((pt, i) => {
+                      const x = (i / (selectedMetric.history.length - 1)) * svgWidth + 20;
+                      const y = svgHeight - ((pt.value - min) / range) * (svgHeight - 20) - 10;
+                      return { x, y, pt };
+                    });
+
+                    const pathd = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
+
+                    return (
+                      <>
+                        <defs>
+                          <linearGradient id="detailGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.15" />
+                            <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0.0" />
+                          </linearGradient>
+                        </defs>
+                        
+                        <path
+                          d={`${pathd} L ${points[points.length - 1].x},${svgHeight} L ${points[0].x},${svgHeight} Z`}
+                          fill="url(#detailGradient)"
+                        />
+                        <path
+                          d={pathd}
+                          fill="none"
+                          stroke="#8B5CF6"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+
+                        {points.map((p, idx) => {
+                          const commitInfo = commits.find(c => c.shortHash === p.pt.commitHash);
+                          return (
+                            <g key={p.pt.commitHash} className="group cursor-default">
+                              <circle
+                                cx={p.x}
+                                cy={p.y}
+                                r="4.5"
+                                fill="#0B0D10"
+                                stroke="#A78BFA"
+                                strokeWidth="2.5"
+                              />
+                              {/* Hover Card */}
+                              <foreignObject 
+                                x={idx > 2 ? p.x - 170 : p.x + 10} 
+                                y={p.y - 45} 
+                                width="180" 
+                                height="110" 
+                                className="overflow-visible pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30"
+                              >
+                                <div className="bg-[#13161B] border border-[#22262B] p-2.5 rounded shadow-2xl relative space-y-1">
+                                  <div className="flex justify-between items-center text-[10px]">
+                                    <span className="font-mono text-violet-400 font-bold">{p.pt.commitHash}</span>
+                                    <span className="text-[#4F5B70] text-[9px] font-mono">{commitInfo?.date || 'unknown'}</span>
+                                  </div>
+                                  <div className="text-[10px] font-medium text-[#E2E8F0] truncate font-sans">
+                                    {commitInfo?.message || 'Codebase state snapshot'}
+                                  </div>
+                                  <div className="border-t border-[#22262B] pt-1 flex justify-between items-baseline font-sans text-[10px] text-[#8A94A6]">
+                                    <span>Val: <b className="font-mono text-white text-[11px] font-tabular">{p.pt.value} {selectedMetric.unit}</b></span>
+                                    {commitInfo?.author && <span className="truncate max-w-[80px] font-medium">By {commitInfo.author}</span>}
+                                  </div>
+                                </div>
+                              </foreignObject>
+                            </g>
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
+                </svg>
+
+                {/* Legend and Axis limits inside card */}
+                <div className="absolute left-2.5 bottom-1 text-[9px] font-mono text-[#4F5B70]">
+                  Git commit progression
                 </div>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedMetric.enabledForAgent}
-                  onChange={() => onToggleAgent(selectedMetric.id)}
-                  className="sr-only peer"
-                />
-                <div className="w-8 h-4.5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2.5px] after:left-[3px] after:bg-zinc-400 peer-checked:after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
+
+              {/* Hash labels on X-axis */}
+              <div className="flex justify-between px-2 text-[10px] font-mono text-[#8A94A6]">
+                {selectedMetric.history.map(h => (
+                  <span key={h.commitHash} className="hover:text-violet-400 transition-colors uppercase cursor-default">{h.commitHash}</span>
+                ))}
+              </div>
             </div>
 
-            {selectedMetric.enabledForAgent ? (
-              <div className="space-y-3 pt-2 text-[11px] border-t border-zinc-850">
-                <div className="flex items-center justify-between text-zinc-300 font-sans">
-                  <span>Guardrail State</span>
-                  <span className="text-emerald-400 font-mono text-[10px] flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Protected
-                  </span>
-                </div>
-                <div className="text-zinc-500 font-sans leading-relaxed text-[10px]">
-                  Guardrail rules enforced: Unit/integration tests must pass perfectly in sandbox; bundle size must not increase by &gt; 1%; no regressive movement allowed on companion metrics.
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[10px]">
-                  <div className="bg-zinc-950 p-1.5 rounded border border-zinc-900">
-                    <div className="text-zinc-500">regression ceiling</div>
-                    <div className="text-zinc-300 font-semibold mt-0.5">2.5% max</div>
-                  </div>
-                  <div className="bg-zinc-950 p-1.5 rounded border border-zinc-900">
-                    <div className="text-zinc-500">mcp authority</div>
-                    <div className="text-zinc-300 font-semibold mt-0.5">READ-WRITE</div>
+            {/* AI DECISION FLOWNET AND TOGGLE */}
+            <div className="bg-[#0B0D10] border border-[#22262B] rounded-lg p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Shield className="w-4 h-4 text-[#8A94A6]" />
+                  <div>
+                    <h4 className="text-xs font-semibold text-[#E2E8F0] font-sans">Autonomous AI Optimizer Daemon</h4>
+                    <p className="text-[10px] text-[#8A94A6] font-sans">Continuous code improvement with safe sandboxing</p>
                   </div>
                 </div>
-
-                {selectedMetric.id === 'api-feed-latency' ? (
-                  <button
-                    onClick={() => onTriggerAgentSim(selectedMetric.id)}
-                    className="w-full bg-[#18181b] border border-blue-500/40 text-blue-400 text-[10.5px] hover:bg-blue-500/10 cursor-pointer transition-colors py-1.5 rounded font-mono font-medium flex items-center justify-center gap-2"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-blue-400" /> Run Autonomous Optimizer Simulator
-                  </button>
-                ) : (
-                  <div className="p-2 bg-blue-950/20 text-blue-400 rounded-md border border-blue-900/30 text-[10px] font-sans flex items-start gap-1.5">
-                    <Activity className="w-3.5 h-3.5 shrink-0 mt-0.5 animate-pulse" />
-                    <span>Attached to continuous optimization pipeline. Lodestar AI scans for improvement hypotheses daily.</span>
-                  </div>
-                )}
+                
+                {/* Switch toggling agent loop participation on server */}
+                <label className="relative inline-flex items-center cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={selectedMetric.enabledForAgent}
+                    onChange={() => onToggleAgent(selectedMetric.id)}
+                    className="sr-only peer"
+                    id={`toggle-agent-${selectedMetric.id}`}
+                  />
+                  <div className="w-8 h-4.5 bg-[#22262B] border border-[#31373E] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-[#808896] peer-checked:after:bg-white after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-violet-600 peer-checked:border-violet-500"></div>
+                </label>
               </div>
-            ) : (
-              <div className="text-[10px] text-zinc-500 font-sans pt-1">
-                Autonomous writing agent is disabled. This metric can only be monitored or read by developers or agent loops inside Cursor/v0 via MCP.
-              </div>
-            )}
-          </div>
 
-          {/* Metric SDK Declaration Code Block */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500">
-              <span className="flex items-center gap-1.5"><Code className="w-3.5 h-3.5" /> SDK INSTRUMENTATION</span>
-              <span>TypeScript</span>
+              {selectedMetric.enabledForAgent ? (
+                <div className="space-y-3 pt-2 text-[#8A94A6] font-sans text-xs border-t border-[#22262B]">
+                  <div className="flex items-center justify-between">
+                    <span>Guardrail Constraints</span>
+                    <span className="text-emerald-400 text-[10px] font-semibold font-mono flex items-center gap-1 bg-emerald-500/5 px-1.5 py-0.5 rounded border border-emerald-500/15">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Sandboxed Safe
+                    </span>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-[#8A94A6]">
+                    Our autonomous system evaluates non-disruptive commits in temporary cloud sandboxes. Code is strictly committed and merged only when unit tests check out perfectly green and companion metrics remain in nominal spec levels.
+                  </p>
+
+                  {selectedMetric.id === 'api-feed-latency' ? (
+                    <button
+                      onClick={() => onTriggerAgentSim(selectedMetric.id)}
+                      disabled={isSimulating}
+                      className="w-full bg-violet-600 border border-violet-500 text-white font-mono text-[11px] font-semibold py-2 rounded hover:bg-violet-500 disabled:bg-[#1E232B] disabled:border-transparent disabled:text-[#4F5B70] disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Activity className={`w-3.5 h-3.5 ${isSimulating ? 'animate-spin' : ''}`} />
+                      {isSimulating ? 'Continuous Patch Executing...' : 'Simulate Autonomous Patch Run'}
+                    </button>
+                  ) : (
+                    <div className="p-2 bg-violet-600/5 text-violet-400 rounded-md border border-violet-500/10 text-[10px] leading-relaxed flex items-center gap-2">
+                      <span className="h-1 w-1 rounded-full bg-violet-400 animate-ping shrink-0" />
+                      <span>Attached to daemon scheduler. Scopes suggestions during nightly automated git cycles.</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-[10.5px] text-[#4F5B70] font-sans pt-1 leading-relaxed">
+                  Autonomous sandbox is offline. Changes to this metric must be implemented as manual commits or driven via direct MCP terminal instructions from your Cursor / VSCode workspace.
+                </div>
+              )}
             </div>
-            <pre className="text-[10.5px] font-mono bg-zinc-950 p-4 rounded-lg border border-zinc-900 overflow-x-auto text-zinc-300 leading-relaxed max-h-[170px]">
-              <code>{selectedMetric.codeSnippet}</code>
-            </pre>
-          </div>
 
+            {/* SDK DECLARATION */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11.5px] font-sans text-[#4F5B70]">
+                <span className="flex items-center gap-1.5 font-medium"><Code className="w-3.5 h-3.5" /> SDK Declarations</span>
+                <span className="font-mono text-[10.5px]">typescript/node</span>
+              </div>
+              <pre className="text-[11px] font-mono bg-[#0B0D10] p-3 rounded border border-[#22262B] text-[#D4D9E2] overflow-x-auto leading-relaxed select-text max-h-[145px]">
+                <code>{selectedMetric.codeSnippet}</code>
+              </pre>
+            </div>
+          </div>
         </div>
+
       </div>
+
     </div>
   );
 }
